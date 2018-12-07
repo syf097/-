@@ -1,0 +1,401 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c COMPACT BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include <reg52.h>
+   2          #include <intrins.h>
+   3          
+   4          char code num[]={0x3F,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f,0x77,0x7c,0x39,0x5e,0x79,0x71};
+   5          char current[]={0x00,0x00,0x00};
+   6          static int sec,i,cnt;
+   7          sbit LED1=P2^1;
+   8          sbit LED2=P2^2;
+   9          sbit LED3=P2^3;
+  10          sbit LED4=P2^4;
+  11          sbit ADDR0=P3^2;
+  12          sbit ADDR1=P3^3;
+  13          sbit ADDR2=P3^4;
+  14          sbit ENLED=P2^0;
+  15          
+  16          sbit SDA=P3^6;
+  17          sbit SCL=P3^5;
+  18          
+  19          //内部数据定义
+  20          #define IIC_Add 0xB8    //AM2320地址
+  21          #define IIC_RX_Length 15
+  22          
+  23          unsigned char IIC_TX_Buffer[]={0x03,0x00,0x04}; //读温湿度命令
+  24          unsigned char IIC_RX_Buffer[IIC_RX_Length] = {0x00};//读回的温湿度
+  25          unsigned char str[12];
+  26          unsigned char pm[7];//pm2.5数据
+  27          unsigned char Uart_RX_Buffer[30] = {0x00};
+  28          unsigned char *String;
+  29          unsigned char WR_Flag;
+  30          unsigned char RxdByte;
+  31          unsigned long result;
+  32          
+  33          
+  34          void LEDswitch();
+  35          void timer(int s);
+  36          void Ack(void);
+  37          void NoAck(void);
+  38          void Clear_Data (void);
+  39          void Waken(void);
+  40          bit WriteNByte(unsigned char sla,unsigned char *s,unsigned char n);
+  41          bit ReadNByte(unsigned char Sal, unsigned char *p,unsigned char n);
+  42          void delay1ms(unsigned int t);
+  43          char WaitingTime(unsigned char val);
+  44          extern void InitLcd1602();
+  45          extern void LcdShowStr(unsigned char x, unsigned char y, unsigned char *str);
+  46          extern void LcdAreaClear(unsigned char x, unsigned char y, unsigned char len);
+  47          extern void PutNumToString(unsigned char str[] ,unsigned int num);
+  48          extern unsigned char I2CReadACK();
+  49          extern unsigned char I2CReadNAK();
+  50          extern bit I2CWrite(unsigned char dat);
+  51          extern void LongToString(unsigned char *str, signed long dat);
+  52          extern char GetADCValue(unsigned char chn);
+  53          extern void ConfigUART(int a);
+  54          extern int getresult(char pm[]);
+  55          
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 2   
+
+  56          int main()
+  57          {
+  58   1        EA = 1;
+  59   1      InitLcd1602();
+  60   1          TMOD=0x01;
+  61   1        TH0 = 0xfc;
+  62   1        TL0=0x67;
+  63   1        ET0 = 1;
+  64   1        TR0=1;
+  65   1        ENLED=0;
+  66   1        ConfigUART(2400);  
+  67   1        LcdShowStr(0,1,"next time");
+  68   1      while(1){
+  69   2          LEDswitch();
+  70   2          timer(WaitingTime(GetADCValue(0)));
+  71   2      }
+  72   1      }
+  73          
+  74          void timer(int s)
+  75          {
+  76   1        sec=s;
+  77   1        while(sec>0)
+  78   1        {
+  79   2          current[0]=num[sec%10];
+  80   2          current[1]=num[sec/10%10];
+  81   2          current[2]=num[sec/100%10];
+  82   2          if(sec%4==0)
+  83   2            {
+  84   3            Clear_Data(); // 清除收到数据
+  85   3        WR_Flag = 0;
+  86   3        Waken();    // 唤醒传感器
+  87   3        WriteNByte(IIC_Add,IIC_TX_Buffer,3); //发送读指令
+  88   3        delay1ms(2);    
+  89   3          ReadNByte(IIC_Add,IIC_RX_Buffer,8);//读返回数据
+  90   3        SCL = 1; SDA = 1; //确认释放总线
+  91   3        PutNumToString(str ,IIC_RX_Buffer[4]*256+IIC_RX_Buffer[5]);
+  92   3        LcdAreaClear(0,0,20);
+  93   3        LcdShowStr(0,0,"temperature:");
+  94   3        if(str[0]<53&&str[0]>48)LcdShowStr(12,0,str);
+  95   3          }
+  96   2          else if(sec%4==2)
+  97   2          {
+  98   3            LcdAreaClear(0,0,20);
+  99   3            LcdShowStr(0,0,"pm2.5:");
+ 100   3            LongToString(str,result);
+ 101   3            LcdShowStr(7,0,str);
+ 102   3          }
+ 103   2          if(sec%4==1||sec%4==3)
+ 104   2          {
+ 105   3            LcdAreaClear(9,1,3);
+ 106   3            LongToString(str,WaitingTime(GetADCValue(0)));
+ 107   3            LcdShowStr(9,1,str);
+ 108   3          }
+ 109   2        }
+ 110   1      }
+ 111          
+ 112          void interrupttimer() interrupt 1
+ 113          {
+ 114   1        TH0 = 0xfc;
+ 115   1        TL0=0x67;
+ 116   1        cnt++;
+ 117   1        if(cnt>=1000)
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 3   
+
+ 118   1        {
+ 119   2          cnt=0;
+ 120   2          sec--;
+ 121   2        }
+ 122   1        P1=0x00;
+ 123   1        
+ 124   1        switch(i)
+ 125   1        {
+ 126   2          case 0:ADDR2=0;ADDR1=0;ADDR0=0;i++;P1=current[2];break;
+ 127   2          case 1:ADDR2=0;ADDR1=0;ADDR0=1;i++;P1=current[1];break;
+ 128   2          case 2:ADDR2=0;ADDR1=1;ADDR0=0;i++;P1=current[0];break;
+ 129   2          default : break;
+ 130   2        }
+ 131   1        if(i>2)
+ 132   1        {
+ 133   2          i=0;
+ 134   2        }
+ 135   1      }
+ 136          
+ 137          void LEDswitch(){
+ 138   1        if(LED1){
+ 139   2          LED1=0;LED2=1;LED3=1;LED4=0;
+ 140   2        }
+ 141   1        else{
+ 142   2          LED1=1;LED2=0;LED3=0;LED4=1;
+ 143   2        }
+ 144   1      }
+ 145          
+ 146          
+ 147          //iic
+ 148          
+ 149           
+ 150          void delay10us(void) //这个延时函数 要大于5US以上
+ 151          {
+ 152   1        _nop_(); _nop_(); _nop_(); 
+ 153   1        _nop_(); _nop_(); _nop_(); 
+ 154   1      }
+ 155           
+ 156          void delay1ms(unsigned int t)
+ 157          {
+ 158   1        unsigned int i;
+ 159   1        unsigned int j;
+ 160   1        for(j=t;j>0;j--)
+ 161   1         for(i=124;i>0;i--);  
+ 162   1      }
+ 163          //**********************************************
+ 164          //送起始位 sda=1->0
+ 165          void I2C_Start()
+ 166          {
+ 167   1        SDA=1;
+ 168   1        SCL=1;
+ 169   1        delay10us();
+ 170   1        SDA=0;
+ 171   1        delay10us();
+ 172   1        SCL=0; 
+ 173   1      }
+ 174          //************************************************
+ 175          //送停止位 sda=0->1
+ 176          void I2C_Stop()
+ 177          {
+ 178   1         SDA=0;
+ 179   1         delay10us();
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 4   
+
+ 180   1         SCL=1;
+ 181   1         delay10us();
+ 182   1         SDA=1;
+ 183   1      }
+ 184          //************************************************
+ 185          //主应答(包含ack:sda=0和no_ack:sda=0)
+ 186          void Ack(void)
+ 187          {  //设置SDA 口为输出
+ 188   1         SDA=0;
+ 189   1         SCL=0;
+ 190   1         delay10us();
+ 191   1         SCL=1;
+ 192   1         delay10us(); 
+ 193   1         SCL=0;
+ 194   1         SDA=1;
+ 195   1      }
+ 196          
+ 197          void NoAck(void)
+ 198          {  //设置SDA 口为输出
+ 199   1         SDA=1;  
+ 200   1         SCL=0;
+ 201   1         delay10us();
+ 202   1         SCL=1;
+ 203   1         delay10us();
+ 204   1         SDA=1;
+ 205   1         SCL=0;
+ 206   1      }
+ 207          
+ 208          // 检测 SDA是否回ACK
+ 209          bit Test_Ack()
+ 210          {  //设置SDA 口为输入
+ 211   1         bit ACK_Flag=0;
+ 212   1         SCL=0;
+ 213   1         SDA=1;    
+ 214   1         delay10us();
+ 215   1         SCL=1;
+ 216   1         delay10us();
+ 217   1         if(SDA==0)
+ 218   1           ACK_Flag = 1;
+ 219   1         else 
+ 220   1           ACK_Flag = 0;
+ 221   1         SCL=0;
+ 222   1         return ACK_Flag;
+ 223   1      }
+ 224          
+ 225          //*************************************************
+ 226          //字节发送程序
+ 227          //发送c(可以是数据也可是地址)，送完后接收从应答
+ 228          //不考虑从应答位
+ 229          void SendData(unsigned char buffer)
+ 230          {
+ 231   1         unsigned char BitCnt=8;//一字节8位
+ 232   1         //设置SDA 口为输出
+ 233   1         do
+ 234   1         {
+ 235   2          SCL=0;
+ 236   2          delay10us();
+ 237   2            if((buffer&0x80)==0) //判断最高位是0还是1
+ 238   2              SDA=0;
+ 239   2            else
+ 240   2              SDA=1;
+ 241   2            SCL=1;
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 5   
+
+ 242   2          delay10us();
+ 243   2            buffer=buffer<<1;//将buffer中的数据左移一位
+ 244   2            BitCnt--;
+ 245   2         }
+ 246   1         while(BitCnt);
+ 247   1         SCL=0;        
+ 248   1      }
+ 249          //**************************************************
+ 250          //字节接收程序
+ 251          //接收器件传来的数据，此程序应配合|主应答函数|i2c_ack_main()使用
+ 252          //return: uchar型1字节
+ 253          unsigned char ReceiveData()
+ 254          {
+ 255   1        unsigned char BitCnt=8,IIC_RX_Data=0;
+ 256   1        unsigned char temp=0;
+ 257   1        SDA=1;           //读入数据 设置SDA 口为输入
+ 258   1        do
+ 259   1        {
+ 260   2           SCL=0;
+ 261   2         delay10us();  
+ 262   2         IIC_RX_Data=_crol_(IIC_RX_Data,1);   //数据左移一位
+ 263   2         BitCnt--;    
+ 264   2         SCL=1;
+ 265   2         delay10us();
+ 266   2           if(SDA==1)
+ 267   2             IIC_RX_Data = IIC_RX_Data|0x01;  //低位置1
+ 268   2           else
+ 269   2             IIC_RX_Data = IIC_RX_Data&0x0fe; //低位清0     
+ 270   2         }
+ 271   1         while(BitCnt);
+ 272   1         SCL=0;
+ 273   1         return IIC_RX_Data;
+ 274   1      }
+ 275          //***************************************************
+ 276          bit WriteNByte(unsigned char sla,unsigned char *s,unsigned char n)
+ 277          {
+ 278   1         unsigned char i;
+ 279   1         
+ 280   1         I2C_Start();  //启动I2C
+ 281   1         SendData(sla);//发送器件地址
+ 282   1         if(!Test_Ack())
+ 283   1         {  
+ 284   2            WR_Flag = 1;
+ 285   2          return(0);
+ 286   2         }
+ 287   1         for(i=0;i<n;i++)//写入8字节数据
+ 288   1         {
+ 289   2            SendData(*(s+i));
+ 290   2          if(!Test_Ack())
+ 291   2          {
+ 292   3            WR_Flag = 1;
+ 293   3          return(0);
+ 294   3          }
+ 295   2         }
+ 296   1         I2C_Stop();
+ 297   1         return(1);
+ 298   1      }
+ 299          bit ReadNByte(unsigned char Sal, unsigned char *p,unsigned char n)
+ 300          {
+ 301   1        unsigned char i;
+ 302   1        I2C_Start();    // 启动I2C
+ 303   1        SendData((Sal)| 0x01); //发送器件地址
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 6   
+
+ 304   1        if(!Test_Ack())
+ 305   1        {
+ 306   2          WR_Flag = 1;
+ 307   2        return(0);
+ 308   2        }
+ 309   1        delay10us();  
+ 310   1        delay10us();
+ 311   1        delay10us(); 
+ 312   1              
+ 313   1        for(i=0;i<n-1;i++)  //读取字节数据
+ 314   1        {
+ 315   2           *(p+i)=ReceiveData(); //读取数据
+ 316   2           Ack(); 
+ 317   2        }
+ 318   1        *(p+n-1)=ReceiveData();        
+ 319   1        NoAck();
+ 320   1        I2C_Stop(); 
+ 321   1        return(1);   
+ 322   1      }
+ 323          
+ 324          void Waken(void)
+ 325             {
+ 326   1          I2C_Start();       // 启动I2C
+ 327   1          SendData(IIC_Add); // 发送器件地址
+ 328   1          Test_Ack();        
+ 329   1          delay1ms(2);       // 至少延时1个Ms
+ 330   1          I2C_Stop(); 
+ 331   1         }
+ 332          void Clear_Data (void)
+ 333            {
+ 334   1            int i;
+ 335   1            for(i=0;i<IIC_RX_Length;i++)
+ 336   1             {
+ 337   2             IIC_RX_Buffer[i] = 0x00;
+ 338   2             }//接收数据清零
+ 339   1       }
+ 340          
+ 341           /* UART中断服务函数 */
+ 342          void InterruptUART() interrupt 4
+ 343          {
+ 344   1          if (RI)  //接收到字节
+ 345   1          {
+ 346   2              RI = 0;  //手动清零接收中断标志位
+ 347   2              RxdByte = SBUF;  //接收到的数据保存到接收字节变量中
+ 348   2          }
+ 349   1          pm[i]=RxdByte;
+ 350   1          i++;
+ 351   1      if(RxdByte==0xaa)i=1;
+ 352   1      if(i==6&&(pm[5]==pm[1]+pm[2]+pm[3]+pm[4]))result=getresult(pm);
+ 353   1              if (TI)  //字节发送完毕
+ 354   1          {
+ 355   2              TI = 0;  //手动清零发送中断标志位
+ 356   2          }
+ 357   1      }
+ 358          
+ 359          //等待时间
+ 360          char WaitingTime(unsigned char val)
+ 361          {
+ 362   1        val = val*25/255;
+ 363   1        if(val>3)return 10;
+ 364   1        else if(val>1&&val<=3)return 8;
+ 365   1        return 5;
+C51 COMPILER V9.52.0.0   MAIN                                                              12/07/2018 17:12:46 PAGE 7   
+
+ 366   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1291    ----
+   CONSTANT SIZE    =     46    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     85      11
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

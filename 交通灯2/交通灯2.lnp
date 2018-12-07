@@ -1,0 +1,7 @@
+"STARTUP.obj",
+"main.obj",
+"Lcd1602.obj",
+".\uart.obj",
+".\I2C.obj" 
+TO "½»Í¨µÆ2" 
+RAMSIZE(256) 
